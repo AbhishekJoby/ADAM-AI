@@ -1,34 +1,32 @@
 import os
-import json
-import ollama 
-import numpy as np
-import sounddevice as sd
-from scipy.io.wavfile import write
-from faster_whisper import WhisperModel
-from sentence_transformers import SentenceTransformer, util
-import time 
+import time
 import logging
+import ollama
+from sentence_transformers import SentenceTransformer, util
+
+# --- IMPORT YOUR NEW MODULE ---
+from VoiceListener import VoiceInputListener
 
 # --- CONFIGURATION ---
-# We don't need OLLAMA_URL anymore, the library handles it!
 MODEL_NAME = "gemma3:1b"
 VAULT_FILE = "vault.txt"
 EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-DEVICE = "cuda" #use "cuda" if torch.cuda.is_available() else "cpu"
 MEASURE_TIME = True
 
 # --- SUPPRESS WARNINGS ---
-# Shut up HuggingFace and Transformers logs
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 
-# Initialize Models
+# --- INITIALIZE MODELS ---
 print("Loading Embedding Model...")
 embedder = SentenceTransformer(EMBEDDING_MODEL_NAME)
-print("Loading Whisper Model...")
-whisper = WhisperModel("base.en", DEVICE, compute_type="int8")
 
-# --- 1. RAG FUNCTIONALITY  ---
+# Note: Whisper is now loaded inside VoiceInputListener, so we don't load it here.
+print("Initializing Hearing System...")
+# Check if you have a GPU, otherwise change device to "cpu"
+listener = VoiceInputListener(model_size="base.en", device="cuda") 
+
+# --- 1. RAG FUNCTIONALITY ---
 def get_vault_embeddings():
     if not os.path.exists(VAULT_FILE):
         return [], []
@@ -57,7 +55,8 @@ def chat_with_ollama(user_input, system_prompt):
     
     # Construct the prompt
     full_prompt = f"Context from my notes:\n{context}\n\nUser Question: {user_input}"
-    start = time.time() # <--- Start Timer
+    
+    start = time.time()
     try:
         response = ollama.chat(
             model=MODEL_NAME,
@@ -66,59 +65,47 @@ def chat_with_ollama(user_input, system_prompt):
                 {'role': 'user', 'content': full_prompt},
             ]
         )
-        end = time.time()   # <--- End Timer
+        end = time.time()
         if MEASURE_TIME:
-            print(f"[Log] AI Thinking: {end - start:.2f}s") # <--- Print Lag
-        # Access response content directly
+            print(f"[Log] AI Thinking: {end - start:.2f}s")
         return response['message']['content']
         
     except Exception as e:
         return f"Error communicating with Ollama: {e}"
 
-# --- 3. AUDIO TOOLS (Unchanged) ---
-def record_audio(duration=5, fs=44100):
-    print("Listening...")
-    recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
-    sd.wait()
-    print("Processing...")
-    write('input.wav', fs, recording)
-    return 'input.wav'
-
-def transcribe_audio(filename):
-    start = time.time()
-    segments, _ = whisper.transcribe(filename)
-    text = " ".join([segment.text for segment in segments])
-    end = time.time()   # <--- End Timer
-    if MEASURE_TIME:
-        print(f"Transcription Time: {end - start:.2f} seconds")
-    return text.strip()
-
+# --- 3. OUTPUT ---
 def text_to_speech(text):
     print(f"\nAI (Voice): {text}")
     # os.system(f"say -v Samantha {text}") # Uncomment for Mac
 
-# --- MAIN LOOP (Unchanged) ---
+# --- MAIN LOOP ---
 def main():
     system_prompt = (
         "You are Josnah, a sarcastic and slightly annoyed assistant. "
         "You always complain before helping, but you are helpful. "
-        "Keep answers concise."
-        "Dont use *" 
+        "Keep answers concise. "
+        "Don't use markdown formatting like * or #."
     )
 
+    # Ensure vault exists
     if not os.path.exists(VAULT_FILE):
         with open(VAULT_FILE, 'w') as f:
             f.write("My name is Chris.\nI am an AI engineer.\n")
 
     while True:
-        input("\nPress Enter to record (or Ctrl+C to exit)...")
-        audio_file = record_audio(duration=5)
-        user_text = transcribe_audio(audio_file)
-        print(f"User: {user_text}")
+        # --- NEW LISTENING LOGIC ---
+        # This function now handles recording, silence detection, 
+        # "OVER" keyword, and transcription all in one.
+        user_text = listener.listen()
         
+        # If user_text is empty (e.g. just noise), skip loop
         if not user_text:
+            print("No speech detected, please try again.")
             continue
 
+        print(f"\n[User Said]: {user_text}")
+
+        # --- COMMANDS ---
         if "insert info" in user_text.lower():
             clean_text = user_text.lower().replace("insert info", "").strip()
             with open(VAULT_FILE, 'a') as f:
@@ -126,8 +113,12 @@ def main():
             print("Info saved to vault.")
             continue
 
+        # --- GENERATE RESPONSE ---
         response = chat_with_ollama(user_text, system_prompt)
         text_to_speech(response)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nExiting...")
