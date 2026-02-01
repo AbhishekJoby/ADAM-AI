@@ -22,7 +22,7 @@ class VoiceInputListener:
         if self.running: # Only record if the flag is true
             self.audio_queue.put(indata.copy())
 
-    def listen(self, fs=16000, silence_threshold=0.075, silence_duration=1.8):
+    def listen(self, fs=16000, silence_threshold=0.075, silence_duration=1.8, on_update=None):
         """
         Records audio and returns text. safely handles start/stop.
         """
@@ -86,7 +86,8 @@ class VoiceInputListener:
                     
                     self.current_text = temp_text
                     print(f"\r[Live]: {self.current_text}", end="", flush=True)
-
+                    if on_update:
+                        on_update(self.current_text)
                     # Check Keyword "OVER"
                     if "over" in temp_text.lower().split():
                         print("\n[Stop Condition] Keyword 'OVER' detected.")

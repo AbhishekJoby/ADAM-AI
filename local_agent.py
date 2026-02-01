@@ -4,8 +4,11 @@ import logging
 import ollama
 from sentence_transformers import SentenceTransformer, util
 
-# --- IMPORT YOUR NEW MODULE ---
 from VoiceListener import VoiceInputListener
+from modules.gui_display import CaptionWindow  #GUI Module
+
+#to supress GUI error
+from tkinter import TclError
 
 # --- CONFIGURATION ---
 MODEL_NAME = "gemma3:1b"
@@ -21,10 +24,6 @@ logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 print("Loading Embedding Model...")
 embedder = SentenceTransformer(EMBEDDING_MODEL_NAME)
 
-# Note: Whisper is now loaded inside VoiceInputListener, so we don't load it here.
-print("Initializing Hearing System...")
-# Check if you have a GPU, otherwise change device to "cpu"
-listener = VoiceInputListener(model_size="base.en", device="cuda") 
 
 # --- 1. RAG FUNCTIONALITY ---
 def get_vault_embeddings():
@@ -81,7 +80,7 @@ def text_to_speech(text):
 # --- MAIN LOOP ---
 def main():
     system_prompt = (
-        "You are Josnah, a sarcastic and slightly annoyed assistant. "
+        "You are Adam, a sarcastic and slightly annoyed assistant. "
         "You always complain before helping, but you are helpful. "
         "Keep answers concise. "
         "Don't use markdown formatting like * or #."
@@ -90,32 +89,40 @@ def main():
     # Ensure vault exists
     if not os.path.exists(VAULT_FILE):
         with open(VAULT_FILE, 'w') as f:
-            f.write("My name is Chris.\nI am an AI engineer.\n")
+            f.write("My name is Jobz.\nI am an tinkerer.\n")
+
+    gui = CaptionWindow()
+    print("Initializing Hearing System...(whisper model)")
+    # Check if you have a GPU, otherwise change device to "cpu"
+    listener = VoiceInputListener(model_size="base.en", device="cuda")
 
     while True:
-        # --- NEW LISTENING LOGIC ---
-        # This function now handles recording, silence detection, 
-        # "OVER" keyword, and transcription all in one.
-        user_text = listener.listen()
-        
-        # If user_text is empty (e.g. just noise), skip loop
-        if not user_text:
-            print("No speech detected, please try again.")
-            continue
+        try:
+            user_text = listener.listen(on_update=gui.update_live) #just remove the callback to disable GUI updates
+            # If user_text is empty (e.g. just noise), skip loop
+            if not user_text:
+                print("No speech detected, please try again.")
+                gui.update_live("No speech detected.")
+                continue
 
-        print(f"\n[User Said]: {user_text}")
+            print(f"\n[User Said]: {user_text}")
+            gui.update_context(user_text)
 
-        # --- COMMANDS ---
-        if "insert info" in user_text.lower():
-            clean_text = user_text.lower().replace("insert info", "").strip()
-            with open(VAULT_FILE, 'a') as f:
-                f.write(clean_text + "\n")
-            print("Info saved to vault.")
-            continue
+            # --- COMMANDS ---
+            if "insert info" in user_text.lower():
+                clean_text = user_text.lower().replace("insert info", "").strip()
+                with open(VAULT_FILE, 'a') as f:
+                    f.write(clean_text + "\n")
+                print("Info saved to vault.")
+                gui.update_context(f"Saved to Vault: {clean_text}")
+                continue
 
-        # --- GENERATE RESPONSE ---
-        response = chat_with_ollama(user_text, system_prompt)
-        text_to_speech(response)
+            # --- GENERATE RESPONSE ---
+            response = chat_with_ollama(user_text, system_prompt)
+            text_to_speech(response)
+        except TclError:
+            print("GUI closed. Exiting...")
+            break
 
 if __name__ == "__main__":
     try:
