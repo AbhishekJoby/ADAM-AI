@@ -80,10 +80,10 @@ def text_to_speech(text):
 # --- MAIN LOOP ---
 def main():
     system_prompt = (
-        "You are Adam, a sarcastic and slightly annoyed assistant. "
-        "You always complain before helping, but you are helpful. "
-        "Keep answers concise. "
-        "Don't use markdown formatting like * or #."
+        "You are Adam, an intelligent, respectful, and highly functional AI assistant. "
+        "Be efficient and concise, similar to JARVIS. "
+        "Focus on utility and avoid unnecessary pleasantries. "
+        "Do not use markdown formatting like * or #."
     )
 
     # Ensure vault exists
@@ -106,19 +106,19 @@ def main():
                 continue
 
             print(f"\n[User Said]: {user_text}")
-            gui.update_context(user_text)
-
+            gui.add_user_message(user_text)  
             # --- COMMANDS ---
             if "insert info" in user_text.lower():
                 clean_text = user_text.lower().replace("insert info", "").strip()
                 with open(VAULT_FILE, 'a') as f:
                     f.write(clean_text + "\n")
                 print("Info saved to vault.")
-                gui.update_context(f"Saved to Vault: {clean_text}")
+                gui.add_system_log(f"Saved to Vault: {clean_text}")
                 continue
 
             # --- GENERATE RESPONSE ---
             response = chat_with_ollama(user_text, system_prompt)
+            gui.add_ai_message(response)
             text_to_speech(response)
         except TclError:
             print("GUI closed. Exiting...")
